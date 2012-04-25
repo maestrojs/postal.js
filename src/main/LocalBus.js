@@ -1,79 +1,89 @@
 var localBus = {
 
-    subscriptions: {},
+	addWireTap : function ( callback ) {
+		var self = this;
+		self.wireTaps.push( callback );
+		return function () {
+			var idx = self.wireTaps.indexOf( callback );
+			if ( idx !== -1 ) {
+				self.wireTaps.splice( idx, 1 );
+			}
+		};
+	},
 
-    wireTaps: [],
+	publish : function ( envelope ) {
+		_.each( this.wireTaps, function ( tap ) {
+			tap( envelope.data, envelope );
+		} );
 
-    publish: function(data, envelope) {
-        this.notifyTaps(data, envelope);
+		_.each( this.subscriptions[envelope.channel], function ( topic ) {
+			_.each( topic, function ( subDef ) {
+				if ( postal.configuration.resolver.compare( subDef.topic, envelope.topic ) ) {
+					if ( _.all( subDef.constraints, function ( constraint ) {
+						return constraint( envelope.data, envelope );
+					} ) ) {
+						if ( typeof subDef.callback === 'function' ) {
+							subDef.callback.apply( subDef.context, [envelope.data, envelope] );
+							subDef.onHandled();
+						}
+					}
+				}
+			} );
+		} );
+	},
 
-        _.each(this.subscriptions[envelope.exchange], function(topic) {
-            _.each(topic, function(binding){
-                if(postal.configuration.resolver.compare(binding.topic, envelope.topic)) {
-                    if(_.all(binding.constraints, function(constraint) { return constraint(data); })) {
-                        if(typeof binding.callback === 'function') {
-                            binding.callback.apply(binding.context, [data, envelope]);
-                            binding.onHandled();
-                        }
-                    }
-                }
-            });
-        });
-    },
+	reset : function () {
+		if ( this.subscriptions ) {
+			_.each( this.subscriptions, function ( channel ) {
+				_.each( channel, function ( topic ) {
+					while ( topic.length ) {
+						topic.pop().unsubscribe();
+					}
+				} );
+			} );
+			this.subscriptions = {};
+		}
+	},
 
-    subscribe: function(subDef) {
-        var idx, found, fn;
+	subscribe : function ( subDef ) {
+		var idx, found, fn, channel = this.subscriptions[subDef.channel], subs;
 
-        if(!this.subscriptions[subDef.exchange]) {
-            this.subscriptions[subDef.exchange] = {};
-        }
-        if(!this.subscriptions[subDef.exchange][subDef.topic]) {
-            this.subscriptions[subDef.exchange][subDef.topic] = [];
-        }
+		if ( !channel ) {
+			channel = this.subscriptions[subDef.channel] = {};
+		}
+		subs = this.subscriptions[subDef.channel][subDef.topic];
+		if ( !subs ) {
+			subs = this.subscriptions[subDef.channel][subDef.topic] = new Array( 0 );
+		}
 
-        idx = this.subscriptions[subDef.exchange][subDef.topic].length - 1;
-        if(!_.any(this.subscriptions[subDef.exchange][subDef.topic], function(cfg) { return cfg === subDef; })) {
-            for(; idx >= 0; idx--) {
-                if(this.subscriptions[subDef.exchange][subDef.topic][idx].priority <= subDef.priority) {
-                    this.subscriptions[subDef.exchange][subDef.topic].splice(idx + 1, 0, subDef);
-                    found = true;
-                    break;
-                }
-            }
-            if(!found) {
-                this.subscriptions[subDef.exchange][subDef.topic].unshift(subDef);
-            }
-        }
+		idx = subs.length - 1;
+		for ( ; idx >= 0; idx-- ) {
+			if ( subs[idx].priority <= subDef.priority ) {
+				subs.splice( idx + 1, 0, subDef );
+				found = true;
+				break;
+			}
+		}
+		if ( !found ) {
+			subs.unshift( subDef );
+		}
+		return subDef;
+	},
 
-        return _.bind(function() { this.unsubscribe(subDef); }, this);
-    },
+	subscriptions : {},
 
-    notifyTaps: function(data, envelope) {
-        _.each(this.wireTaps,function(tap) {
-            tap(data, envelope);
-        });
-    },
+	wireTaps : new Array( 0 ),
 
-    unsubscribe: function(config) {
-        if(this.subscriptions[config.exchange][config.topic]) {
-            var len = this.subscriptions[config.exchange][config.topic].length,
-                idx = 0;
-            for ( ; idx < len; idx++ ) {
-                if (this.subscriptions[config.exchange][config.topic][idx] === config) {
-                    this.subscriptions[config.exchange][config.topic].splice( idx, 1 );
-                    break;
-                }
-            }
-        }
-    },
-
-    addWireTap: function(callback) {
-        this.wireTaps.push(callback);
-        return function() {
-            var idx = this.wireTaps.indexOf(callback);
-            if(idx !== -1) {
-                this.wireTaps.splice(idx,1);
-            }
-        };
-    }
+	unsubscribe : function ( config ) {
+		if ( this.subscriptions[config.channel][config.topic] ) {
+			var len = this.subscriptions[config.channel][config.topic].length,
+				idx = 0;
+			for ( ; idx < len; idx++ ) {
+				if ( this.subscriptions[config.channel][config.topic][idx] === config ) {
+					this.subscriptions[config.channel][config.topic].splice( idx, 1 );
+					break;
+				}
+			}
+		}
+	}
 };
