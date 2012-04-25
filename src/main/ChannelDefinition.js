@@ -1,21 +1,39 @@
-var ChannelDefinition = function(exchange, topic) {
-    this.exchange = exchange;
-    this.topic = topic;
+var ChannelDefinition = function ( channelName, defaultTopic ) {
+	this.channel = channelName || DEFAULT_CHANNEL;
+	this._topic = defaultTopic || "";
 };
 
 ChannelDefinition.prototype = {
-    subscribe: function(callback) {
-        var subscription = new SubscriptionDefinition(this.exchange, this.topic, callback);
-        postal.configuration.bus.subscribe(subscription);
-        return subscription;
-    },
+	subscribe : function () {
+		var len = arguments.length;
+		if ( len === 1 ) {
+			return new SubscriptionDefinition( this.channel, this._topic, arguments[0] );
+		}
+		else if ( len === 2 ) {
+			return new SubscriptionDefinition( this.channel, arguments[0], arguments[1] );
+		}
+	},
 
-    publish: function(data, envelope) {
-        var env = _.extend({
-            exchange: this.exchange,
-            timeStamp: new Date(),
-            topic: this.topic
-        }, envelope);
-        postal.configuration.bus.publish(data, env);
-    }
+	publish : function ( obj ) {
+		var envelope = {
+			channel : this.channel,
+			topic : this._topic,
+			data : obj || {}
+		};
+		// If this is an envelope....
+		if ( obj.topic && obj.data ) {
+			envelope = obj;
+			envelope.channel = envelope.channel || this.channel;
+		}
+		envelope.timeStamp = new Date();
+		postal.configuration.bus.publish( envelope );
+		return envelope;
+	},
+
+	topic : function ( topic ) {
+		if ( topic === this._topic ) {
+			return this;
+		}
+		return new ChannelDefinition( this.channel, topic );
+	}
 };
